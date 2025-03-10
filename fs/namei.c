@@ -1806,6 +1806,12 @@ static int lookup_slow(struct nameidata *nd, struct path *path)
 	mutex_lock(&parent->d_inode->i_mutex);
 	dentry = __lookup_hash(&nd->last, parent, nd->flags);
 	mutex_unlock(&parent->d_inode->i_mutex);
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+	if (!IS_ERR(dentry) && dentry->d_inode && unlikely(dentry->d_inode->i_state & INODE_STATE_SUS_PATH) && likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC)) {
+		dput(dentry);
+		return ERR_PTR(-ENOENT);
+	}
+#endif
 	if (IS_ERR(dentry))
 		return PTR_ERR(dentry);
 	path->mnt = nd->path.mnt;
@@ -2163,6 +2169,12 @@ OK:
 			}
 			return -ENOTDIR;
 		}
+#ifdef CONFIG_KSU_SUSFS_SUS_PATH
+		// we deal with sus sub path here
+		if (nd->inode && unlikely(nd->inode->i_state & INODE_STATE_SUS_PATH) && likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC)) {
+			return 0;
+		}
+#endif
 	}
 }
 
@@ -3186,6 +3198,7 @@ static int lookup_open(struct nameidata *nd, struct path *path,
 	struct inode *dir_inode = dir->d_inode;
 	struct dentry *dentry;
 	int error;
+	int create_error = 0;
 	bool need_lookup;
 
 	*opened &= ~FILE_CREATED;
@@ -3474,12 +3487,6 @@ opened:
 		if (error)
 			goto exit_fput;
 	}
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-	if (!IS_ERR(dentry) && dentry->d_inode && unlikely(dentry->d_inode->i_state & INODE_STATE_SUS_PATH) && likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC)) {
-		dput(dentry);
-		return ERR_PTR(-ENOENT);
-	}
-#endif
 out:
 	if (unlikely(error > 0)) {
 		WARN_ON(1);
@@ -4137,12 +4144,6 @@ int vfs_unlink2(struct vfsmount *mnt, struct inode *dir, struct dentry *dentry, 
 				detach_mounts(dentry);
 			}
 		}
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-		// we deal with sus sub path here
-		if (nd->inode && unlikely(nd->inode->i_state & INODE_STATE_SUS_PATH) && likely(current->susfs_task_state & TASK_STRUCT_NON_ROOT_USER_APP_PROC)) {
-			return 0;
-		}
-#endif
 	}
 out:
 	mutex_unlock(&target->i_mutex);
